@@ -1,0 +1,8 @@
+name: touchsensor
+
+services:
+  touchsensor:
+    build: .
+    privileged: true
+    ports:
+      - "8081:8081"

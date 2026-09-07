@@ -26,6 +26,8 @@ services:
       - '--storage.tsdb.retention.time=1y'
     ports:
       - '9090:9090'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     restart: always
 
   grafana:
@@ -35,6 +37,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
       - '3000:3000'
     restart: always
