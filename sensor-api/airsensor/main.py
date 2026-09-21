@@ -1,121 +1,143 @@
-import json
-import mimetypes
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from time import sleep
 from airsensor import AirSensor
-from light_sensor import LightSensor
-
-
-try:
-    air_sensor = AirSensor()
-    air_sensor_error = None
-except Exception as error:
-    air_sensor = None
-    air_sensor_error = str(error)
-
-try:
-    light_sensor = LightSensor()
-    light_sensor_error = None
-except Exception as error:
-    light_sensor = None
-    light_sensor_error = str(error)
-
-
-STATIC_ROOT = Path(__file__).parent / "static"
-
-
+from distance_sensor import DistanceSensor
+from touch_sensor import TouchSensor
+from touch_counter import TouchCounter
+import json
+import textwrap
+import threading
+import paho.mqtt.client as mqtt
+ 
+ 
+air_sensor = AirSensor()
+distance_sensor = DistanceSensor()
+touch_sensor = TouchSensor(11)
+touch_counter = TouchCounter()
+ 
+host = "0.0.0.0"
+port = 8080
+ 
+sleep(1)
+ 
 class Server(BaseHTTPRequestHandler):
-    def send_json(self, payload, code=200):
+    def sendJSON(self, object: object, code: int = 200):
         self.send_response(code)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET")
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Methods", "*")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Vary", "Origin")
+        self.send_header("Content-type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps(payload).encode())
-
-    def send_metrics(self):
-        illuminance = None
-        light_available = light_sensor is not None
-        if light_sensor is not None:
-            try:
-                illuminance = light_sensor.read_light()
-            except OSError:
-                light_available = False
-
-        lines = [
-            "# HELP sensor_air_available Air sensor availability (1 is available).",
-            "# TYPE sensor_air_available gauge",
-            f"sensor_air_available {1 if air_sensor is not None else 0}",
-            "# HELP sensor_light_available Light sensor availability (1 is available).",
-            "# TYPE sensor_light_available gauge",
-            f"sensor_light_available {1 if light_available else 0}",
-        ]
-        if air_sensor is not None:
-            try:
-                air = air_sensor.read_air()
-                if air.is_valid():
-                    lines.extend([
-                        "# HELP sensor_temperature_celsius Current temperature in Celsius.",
-                        "# TYPE sensor_temperature_celsius gauge",
-                        f"sensor_temperature_celsius {air.temperature}",
-                        "# HELP sensor_humidity_percent Current relative humidity in percent.",
-                        "# TYPE sensor_humidity_percent gauge",
-                        f"sensor_humidity_percent {air.humidity}",
-                    ])
-            except (OSError, TimeoutError):
-                pass
-        if illuminance is not None:
-            lines.extend([
-                "# HELP sensor_light_lux Current illuminance in lux.",
-                "# TYPE sensor_light_lux gauge",
-                f"sensor_light {illuminance}",
-            ])
-
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; version=0.0.4")
-        self.end_headers()
-        self.wfile.write(("\n".join(lines) + "\n").encode())
-
-    def serve_static(self):
-        file_path = STATIC_ROOT / "index.html"
-        mime_type, _ = mimetypes.guess_type(file_path.name)
-        self.send_response(200)
-        self.send_header("Content-Type", mime_type or "application/octet-stream")
-        self.end_headers()
-        self.wfile.write(file_path.read_bytes())
-
+        self.wfile.write(json.dumps(object).encode())
+ 
     def do_GET(self):
-        if self.path == "/metrics":
-            self.send_metrics()
+        if self.path == "/":
+            air = air_sensor.read_air()
+            self.sendJSON({"status": "ok", "air": air.__dict__})
             return
 
-        if self.path == "/":
-            self.serve_static()
-        elif self.path == "/api/air":
-            if air_sensor is None:
-                self.send_json({"status": "error", "message": air_sensor_error}, 503)
-                return
+        if self.path == "/distance":
+            distance = distance_sensor.read()
+            self.sendJSON({"status": "ok", "distance": distance})
+            return
+ 
+        if self.path == "/metrics":
             air = air_sensor.read_air()
-            self.send_json({"status": "ok", "data": [
-                {"label": "Temperature", "value": air.temperature, "unit": "°C"},
-                {"label": "Humidity", "value": air.humidity, "unit": "%"},
-            ]})
-        elif self.path == "/api/light":
-            if light_sensor is None:
-                self.send_json({"status": "error", "message": light_sensor_error}, 503)
-                return
-            try:
-                self.send_json({"status": "ok", "data": {
-                    "label": "Illuminance", "value": light_sensor.read_light(), "unit": "lux",
-                }})
-            except OSError as error:
-                self.send_json({"status": "error", "message": str(error)}, 503)
-        else:
-            self.send_error(404)
+            distance = distance_sensor.read() or 1
+            response = textwrap.dedent(f"""
+                # HELP sensor_distance measured distance in lux\n\
+                # TYPE sensor_distance gauge\n\
+                sensor_distance {distance}\n\
+                # HELP sensor_air_temperature measured temperature in celcius\n\
+                # TYPE sensor_air_temperature gauge\n\
+                sensor_air_temperature {air.temperature}\n\
+                # HELP sensor_air_humidity measured humidity in percent\n\
+                # TYPE sensor_air_humidity gauge\n\
+                sensor_air_humidity {air.humidity}
+            """)
+ 
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "*")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.send_header("Vary", "Origin")
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+ 
+            self.wfile.write(response.encode())
+ 
+ 
+def read_distance_sensor(delay):
+        while True:
+            distance = distance_sensor.read()
+            mqtt_client.publish("ldirren/sensor/distance", distance, qos=2)
+            sleep(delay)
 
 
+def read_touch_sensor(delay):
+    was_touched = False
+
+    while True:
+        touched = touch_sensor.read()
+
+        # Nur beim Erkennen einer neuen Berührung senden
+        if touched and not was_touched:
+            touch_count = touch_counter.increment()
+            mqtt_client.publish(
+                "ldirren/sensor/touch",
+                payload="true",
+                qos=2
+            )
+            mqtt_client.publish(
+                "ldirren/sensor/touch/count",
+                payload=str(touch_count),
+                qos=2,
+                retain=True,
+            )
+
+        was_touched = touched
+        sleep(delay)
+ 
+
+def on_connect(client, userdata, flags, reason_code, properites):
+    print(f"Connected to MQTT Broker with result {reason_code}")
+
+
+def on_message(client, userdata, msg: object):
+    print(msg.topic + " " + str(msg.payload))
+
+
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+mqtt_client.connect("172.17.0.1", 1883, 60)
+ 
+def main():
+    web_server = HTTPServer((host, port), Server)
+    print(f"Server started and listen to {host}:{port}")
+ 
+    distanceSensorThread = threading.Thread(
+        target=read_distance_sensor, args=(0.3,)
+    )
+    distanceSensorThread.start()
+
+    touchSensorThread = threading.Thread(
+        target=read_touch_sensor, args=(0.05,), daemon=True
+    )
+    touchSensorThread.start()
+ 
+    try:
+        mqtt_client.loop_start()
+        mqtt_client.publish("ldirren/up", "true", qos=2)
+        web_server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+ 
+ 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("0.0.0.0", 8080), Server)
-    print("Sensor API listening on 0.0.0.0:8080")
-    server.serve_forever()
+    main()
+ 
+print("Server stopped")
+ 
+ 

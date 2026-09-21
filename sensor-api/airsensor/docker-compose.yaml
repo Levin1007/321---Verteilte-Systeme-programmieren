@@ -1,8 +1,11 @@
-name: airsensor
-
 services:
   airsensor:
     build: .
     privileged: true
+    command: ['python', '-u', 'main.py']
+    volumes:
+      - .:/usr/src/app/
     ports:
-      - "8080:8080"
+      - 8080:8080
+    devices:
+      - /dev/gpiomem:/dev/gpiomem

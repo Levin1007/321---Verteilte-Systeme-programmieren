@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+</head>
+<body>
+    <h1>Dashboard</h1>
+    <h2>MQTT-Broker</h2>
+    <p>Distance Sensor: <span id="distanceSensorValue"></span>cm</p>
+    <script src="mqtt.min.js"></script>
+    <script>
+        console.log(mqtt);
+
+        const distanceSensorValue = document.querySelector('#distanceSensorValue');
+
+        const broker = `ws://${window.location.host}:9001`
+        const mqttClient = mqtt.connect(broker, {});
+        mqttClient.on('connect', () => {
+            console.log('connected');
+            mqttClient.subscribe('ldirren/#', err => {
+                if (err) console.error(err);
+            });
+        })
+
+        mqttClient.on('message', (topic, message) => {
+            console.log(`got message from topic ${topic}: ${message}`);
+            switch (topic) {
+                case 'ldirren/sensor/distance':
+                    distanceSensorValue.textContent = parseFloat(message);
+                    break;
+            
+                default:
+                    break;
+            }
+        })
+
+    </script>
+</body>
+</html>
