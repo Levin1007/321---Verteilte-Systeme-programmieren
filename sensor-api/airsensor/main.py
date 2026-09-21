@@ -1,6 +1,6 @@
 import json
 import mimetypes
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from airsensor import AirSensor
@@ -52,21 +52,24 @@ class Server(BaseHTTPRequestHandler):
             f"sensor_light_available {1 if light_available else 0}",
         ]
         if air_sensor is not None:
-            air = air_sensor.read_air()
-            if air.is_valid():
-                lines.extend([
-                    "# HELP sensor_temperature_celsius Current temperature in Celsius.",
-                    "# TYPE sensor_temperature_celsius gauge",
-                    f"sensor_temperature_celsius {air.temperature}",
-                    "# HELP sensor_humidity_percent Current relative humidity in percent.",
-                    "# TYPE sensor_humidity_percent gauge",
-                    f"sensor_humidity_percent {air.humidity}",
-                ])
+            try:
+                air = air_sensor.read_air()
+                if air.is_valid():
+                    lines.extend([
+                        "# HELP sensor_temperature_celsius Current temperature in Celsius.",
+                        "# TYPE sensor_temperature_celsius gauge",
+                        f"sensor_temperature_celsius {air.temperature}",
+                        "# HELP sensor_humidity_percent Current relative humidity in percent.",
+                        "# TYPE sensor_humidity_percent gauge",
+                        f"sensor_humidity_percent {air.humidity}",
+                    ])
+            except (OSError, TimeoutError):
+                pass
         if illuminance is not None:
             lines.extend([
                 "# HELP sensor_light_lux Current illuminance in lux.",
                 "# TYPE sensor_light_lux gauge",
-                f"sensor_light_lux {illuminance}",
+                f"sensor_light {illuminance}",
             ])
 
         self.send_response(200)
@@ -83,6 +86,10 @@ class Server(BaseHTTPRequestHandler):
         self.wfile.write(file_path.read_bytes())
 
     def do_GET(self):
+        if self.path == "/metrics":
+            self.send_metrics()
+            return
+
         if self.path == "/":
             self.serve_static()
         elif self.path == "/api/air":
@@ -104,13 +111,11 @@ class Server(BaseHTTPRequestHandler):
                 }})
             except OSError as error:
                 self.send_json({"status": "error", "message": str(error)}, 503)
-        elif self.path == "/metrics":
-            self.send_metrics()
         else:
             self.send_error(404)
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", 8080), Server)
+    server = ThreadingHTTPServer(("0.0.0.0", 8080), Server)
     print("Sensor API listening on 0.0.0.0:8080")
     server.serve_forever()

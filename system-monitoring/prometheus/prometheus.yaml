@@ -13,7 +13,8 @@ scrape_configs:
   - job_name: "windows_exporter"
     static_configs:
       - targets: ["10.5.61.243:9182"]
-  - job_name: "sensor-api"
-    metrics_path: /metrics
+  - job_name: "sensor"
+    scrape_interval: 15s
     static_configs:
-      - targets: ["host.docker.internal:8080"]
+      - targets: 
+        - "ldirren:8080"
