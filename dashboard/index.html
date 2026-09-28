@@ -5,38 +5,138 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2rem;
+            background: #f4f7fb;
+            color: #1f2937;
+        }
+
+        h1 {
+            margin-bottom: 0.5rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+            max-width: 800px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #6b7280;
+        }
+
+        .value {
+            display: block;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-top: 0.45rem;
+        }
+
+        .unit {
+            font-size: 0.9rem;
+            margin-left: 0.3rem;
+            color: #374151;
+        }
+
+        .status-ok {
+            color: #15803d;
+        }
+
+        .status-warn {
+            color: #b45309;
+        }
+    </style>
 </head>
 <body>
     <h1>Dashboard</h1>
-    <h2>MQTT-Broker</h2>
-    <p>Distance Sensor: <span id="distanceSensorValue"></span>cm</p>
+    <h2>MQTT sensor data</h2>
+
+    <div class="grid">
+        <div class="card">
+            <div class="label">Distance</div>
+            <div class="value"><span id="distanceSensorValue">--</span><span class="unit">cm</span></div>
+        </div>
+
+        <div class="card">
+            <div class="label">Touch</div>
+            <div class="value"><span id="touchSensorValue">--</span></div>
+        </div>
+
+        <div class="card">
+            <div class="label">Touch count</div>
+            <div class="value"><span id="touchCountValue">--</span></div>
+        </div>
+    </div>
+
     <script src="mqtt.min.js"></script>
     <script>
-        console.log(mqtt);
-
         const distanceSensorValue = document.querySelector('#distanceSensorValue');
+        const touchSensorValue = document.querySelector('#touchSensorValue');
+        const touchCountValue = document.querySelector('#touchCountValue');
 
-        const broker = `ws://${window.location.host}:9001`
+        const broker = `ws://${window.location.hostname}:9001`;
         const mqttClient = mqtt.connect(broker, {});
+
+        const setText = (element, value) => {
+            element.textContent = value;
+        };
+
         mqttClient.on('connect', () => {
-            console.log('connected');
+            console.log('connected to MQTT broker');
             mqttClient.subscribe('ldirren/#', err => {
-                if (err) console.error(err);
+                if (err) {
+                    console.error('MQTT subscribe error:', err);
+                }
             });
-        })
+        });
+
+        mqttClient.on('error', err => {
+            console.error('MQTT connection error:', err);
+        });
 
         mqttClient.on('message', (topic, message) => {
-            console.log(`got message from topic ${topic}: ${message}`);
+            const payload = message.toString();
+            console.log(`message from topic ${topic}: ${payload}`);
+
             switch (topic) {
-                case 'ldirren/sensor/distance':
-                    distanceSensorValue.textContent = parseFloat(message);
+                case 'ldirren/sensor/distance': {
+                    const distance = Number.parseFloat(payload);
+                    setText(distanceSensorValue, Number.isFinite(distance) ? distance.toFixed(1) : '--');
                     break;
-            
+                }
+
+                case 'ldirren/sensor/touch': {
+                    const touched = payload === 'true';
+                    setText(touchSensorValue, touched ? 'Touched' : 'Idle');
+                    touchSensorValue.classList.toggle('status-ok', touched);
+                    touchSensorValue.classList.toggle('status-warn', !touched);
+                    break;
+                }
+
+                case 'ldirren/sensor/touch/count': {
+                    const count = Number.parseInt(payload, 10);
+                    setText(touchCountValue, Number.isFinite(count) ? count : '--');
+                    break;
+                }
+
                 default:
                     break;
             }
-        })
-
+        });
     </script>
 </body>
 </html>
