@@ -1,0 +1,7 @@
+Abgabe.zip
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.git/
